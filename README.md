@@ -2,8 +2,11 @@
 
 A single-file, browser-based tool that splits a DayZ map (or any other) image into equally sized zones for a given number of players. It runs locally in your browser.
 
+![](/example_images/chernarus_example.png) ![](/example_images/namalsk_example.png)
+
+
 ## How to use
-1. Open `index.html` in a browser.
+1. Try it out [here](https://lucaperl.github.io/EqualZonesTool/) or download the `index.html` and open it in a browser
 2. Upload your map image.
 3. Set map width (km) and players/zones.
 4. If needed, enable Ocean/Ice and pick the colors on the map; adjust tolerance.
