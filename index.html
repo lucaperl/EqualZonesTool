@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DayZ Equal Zones Tool</title>
+  <style>
+    :root {
+      --bg-main: #141414;
+      --bg-panel: #1e1e1e;
+      --bg-input: #2a2a2a;
+      --border-color: #333;
+      --accent: #5cb85c;
+      --accent-hover: #4cae4c;
+      --text-main: #eee;
+      --text-muted: #999;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { 
+      font-family: 'Segoe UI', system-ui, sans-serif; 
+      background: var(--bg-main); 
+      color: var(--text-main); 
+      height: 100vh;
+      display: flex;
+      overflow: hidden; 
+    }
+
+    /* ---- SIDEBAR ---- */
+    .sidebar {
+      width: 400px;
+      min-width: 400px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+    }
+    .sidebar-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); }
+    h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+    h1 span { color: var(--accent); }
+    .subtitle { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .sidebar-content::-webkit-scrollbar { width: 6px; }
+    .sidebar-content::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-content::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    .sidebar-content::-webkit-scrollbar-thumb:hover { background: #555; }
+
+    /* Settings Sections */
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 6px;
+      margin-bottom: 4px;
+    }
+
+    label.field-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ddd;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .label-with-icon {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ---- INFO TOOLTIP ICON (CSS ONLY) ---- */
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #444;
+      color: #bbb;
+      font-size: 10px;
+      font-weight: bold;
+      cursor: help;
+      position: relative;
+      font-family: monospace;
+      z-index: 1000;
+    }
+    .info-icon:hover {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .info-icon::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      width: max-content;
+      max-width: 230px; 
+      background: rgba(30,30,30,0.98); 
+      border: 1px solid #555;
+      padding: 12px 14px;
+      border-radius: 6px;
+      color: #eee;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.5;
+      text-transform: none;
+      letter-spacing: normal;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease-in-out;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      white-space: normal;
+      text-align: left;
+      z-index: 1000;
+    }
+    .info-icon::before {
+      content: '';
+      position: absolute;
+      border-width: 6px;
+      border-style: solid;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease-in-out;
+      z-index: 1001;
+    }
+
+    .info-icon::after { bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); }
+    .info-icon::before { bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); border-color: #555 transparent transparent transparent; }
+    .info-icon.tt-left::after { bottom: calc(100% + 10px); right: -15px; left: auto; transform: none; }
+    .info-icon.tt-left::before { bottom: calc(100% + 4px); right: 7.5px; left: auto; transform: translateX(50%); border-color: #555 transparent transparent transparent; }
+    .info-icon.tt-down::after { bottom: auto; top: calc(100% + 10px); left: 50%; transform: translateX(-50%); }
+    .info-icon.tt-down::before { bottom: auto; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); border-color: transparent transparent #555 transparent; }
+    .info-icon:hover::after, .info-icon:hover::before { opacity: 1; visibility: visible; }
+
+    input[type=number] { 
+      background: var(--bg-input); color: #fff; border: 1px solid #444; border-radius: 6px; 
+      padding: 8px 12px; font-size: 14px; width: 100%; outline: none; transition: border-color 0.2s; 
+    }
+    input[type=number]:focus { border-color: var(--accent); }
+
+    input[type=file] { 
+      background: var(--bg-input); border: 1px dashed #555; border-radius: 6px; padding: 12px; 
+      font-size: 12px; width: 100%; color: #aaa; cursor: pointer; transition: border-color 0.2s;
+    }
+    input[type=file]:hover { border-color: var(--accent); }
+
+    /* ---- PRESETS ---- */
+    .presets-wrapper { margin-top: 2px; display: flex; flex-direction: column; gap: 6px; }
+    .presets-title { font-size: 11px; color: #777; font-weight: 600; }
+    .presets-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .preset-chip { 
+      padding: 4px 10px; background: #2a2a2a; border: 1px solid #444; border-radius: 20px; 
+      font-size: 11px; font-weight: 600; color: #aaa; cursor: pointer; transition: all 0.15s; 
+    }
+    .preset-chip:hover { border-color: #666; color: #eee; }
+    .preset-chip.active { background: rgba(92, 184, 92, 0.15); border-color: var(--accent); color: var(--accent); }
+
+    /* ---- TOGGLE SWITCHES ---- */
+    .mask-group { background: var(--bg-input); border: 1px solid #333; border-radius: 8px; display: flex; flex-direction: column; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; cursor: pointer; user-select: none; transition: background 0.2s; border-radius: 8px; }
+    .toggle-row:hover { background: #333; }
+    .toggle-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #ddd; }
+    .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background-color: #444; border-radius: 20px; transition: .3s; }
+    .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(16px); }
+
+    .zone-box { padding: 12px 14px; border-top: 1px solid #333; background: rgba(0,0,0,0.15); border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; display: none; flex-direction: column; gap: 12px; }
+    .zone-box.visible { display: flex; }
+
+    .zone-header { display: flex; align-items: center; justify-content: space-between; }
+    .tol-group { display: flex; align-items: center; gap: 8px; }
+    .tol-group label { font-size: 11px; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+    .tol-group input { width: 55px; padding: 4px 6px; font-size: 12px; }
+
+    .status-msg { font-size: 11px; color: #777; font-style: italic; }
+    .status-msg.ok { color: var(--accent); font-style: normal; font-weight: 600; }
+    .color-chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid #000; vertical-align: middle; margin-right: 4px; }
+
+    /* ---- BUTTONS ---- */
+    .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 13px; transition: all 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-pick { background: #3a3a3a; color: #fff; border: 1px solid #555; width: 100%; padding: 8px; }
+    .btn-pick:hover { background: #4a4a4a; border-color: #666; }
+    .btn-pick.active { border-color: var(--accent); background: rgba(92, 184, 92, 0.1); color: var(--accent); }
+
+    .btn-preview { background: transparent; border: 1px solid #444; color: #ccc; width: 100%; margin-top: 8px;}
+    .btn-preview:hover { background: rgba(255,255,255,0.05); color: #fff; border-color: #666; }
+    .btn-preview.active { border-color: #ff5555; color: #ff5555; background: rgba(255,85,85,0.1); }
+    .btn-preview.active:hover { background: rgba(255,85,85,0.2); color: #ff7777; border-color: #ff7777; }
+
+    .sidebar-footer { padding: 20px 24px; border-top: 1px solid var(--border-color); background: var(--bg-panel); display: flex; flex-direction: column; gap: 10px; position: relative; }
+    .btn-calc { background: var(--accent); color: #fff; width: 100%; padding: 14px; font-size: 14px; }
+    .btn-calc:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .footer-row { display: flex; gap: 10px; width: 100%; }
+    .btn-reset { background: #3a3a3a; color: #eee; flex: 1; padding: 12px; }
+    .btn-reset:hover { background: #4a4a4a; border-color: #666; }
+    .btn-export { background: #2d6aad; color: #fff; flex: 2; padding: 12px; }
+    .btn-export:hover:not(:disabled) { background: #255e9c; }
+
+    /* ---- MAIN CONTENT ---- */
+    .main-area { flex: 1; display: flex; flex-direction: column; background: #000; position: relative; z-index: 10; }
+
+    .stats-bar { 
+      background: var(--bg-panel); border-bottom: 1px solid var(--border-color); 
+      padding: 12px 20px; display: flex; gap: 20px; align-items: center; height: 60px; 
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5); position: relative; z-index: 12;
+    }
+
+    .stat-item { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+    .stat-value { font-size: 15px; font-weight: 700; color: #fff; }
+    .stat-value.green { color: var(--accent); }
+    .stat-sep { width: 1px; height: 24px; background: #333; }
+
+    .canvas-wrap { flex: 1; position: relative; overflow: hidden; background: repeating-linear-gradient(45deg, #0a0a0a, #0a0a0a 10px, #111 10px, #111 20px); z-index: 11; cursor: grab; }
+    .canvas-wrap.picking { cursor: crosshair; }
+    .canvas-wrap.dragging { cursor: grabbing; }
+    canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; box-shadow: 0 4px 30px rgba(0,0,0,0.8); will-change: transform; }
+
+    #loadingOverlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.85); color: white; justify-content: center; align-items: center; font-size: 18px; font-weight: 700; z-index: 100; flex-direction: column; gap: 12px; text-align: center; }
+    #progressText { font-size: 13px; font-weight: 400; color: #aaa; }
+    .hidden { display: none !important; }
+
+    /* Tooltip */
+    #tooltip { position: fixed; display: none; background: rgba(15,15,15,0.92); border: 1px solid #444; border-radius: 9px; padding: 10px 14px; pointer-events: none; z-index: 9999; backdrop-filter: blur(6px); min-width: 160px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    #tooltip .tt-header { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+    #tooltip .tt-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
+    #tooltip .tt-row { font-size: 11px; color: #bbb; display: flex; justify-content: space-between; gap: 12px; line-height: 1.8; }
+    #tooltip .tt-row span:last-child { color: #eee; font-weight: 600; text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>DayZ <span>Equal Zones</span> Tool</h1>
+      <div class="subtitle">Split the playable land into fair, equally sized zones.</div>
+    </div>
+    <div class="sidebar-content">
+      <div class="section">
+        <div class="section-title">1. Map Image</div>
+        <label class="field-label"><span class="label-with-icon">Select a .png or .jpg file</span><input type="file" id="imageUpload" accept="image/*" /></label>
+      </div>
+      <div class="section">
+        <div class="section-title">2. Map Scale</div>
+        <label class="field-label"><span class="label-with-icon">Map width (in kilometers) <span class="info-icon" data-tooltip="Required to accurately calculate the real-world square kilometers (km²) of the playable land and individual zones.">?</span></span><input type="number" id="mapWidthKm" value="15.36" step="0.01" min="1" /></label>
+        <div class="presets-wrapper">
+          <span class="presets-title">Auto-fill width for known maps:</span>
+          <div class="presets-list">
+            <div class="preset-chip active" data-km="15.36" data-name="Chernarus">Chernarus</div>
+            <div class="preset-chip" data-km="15.36" data-name="Sakhal">Sakhal</div>
+            <div class="preset-chip" data-km="12.80" data-name="Livonia">Livonia</div>
+            <div class="preset-chip" data-km="12.80" data-name="Namalsk">Namalsk</div>
+            <div class="preset-chip" data-km="16.40" data-name="Deer Isle">Deer Isle</div>
+            <div class="preset-chip" data-km="12.82" data-name="Esseker">Esseker</div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">3. Zone Distribution</div>
+        <label class="field-label"><span class="label-with-icon">Number of players / zones <span class="info-icon" data-tooltip="The total playable landmass will be divided equally into this many separate territories.">?</span></span><input type="number" id="playerCount" value="60" min="1" /></label>
+        <label class="field-label" style="margin-top: 4px;"><span class="label-with-icon">Calculation Precision <span class="info-icon" data-tooltip="Higher values take slightly longer to compute, but ensure that all zones end up with exactly the same size. Default (700) is usually perfect.">?</span></span><input type="number" id="vorIterations" value="700" min="10" max="2000" /></label>
+      </div>
+      <div class="section">
+        <div class="section-title">4. Exclude Specific Areas</div>
+        <div class="mask-group">
+          <label class="toggle-row" for="useOcean"><div class="toggle-label">🌊 Map contains Ocean / Sea</div><div class="switch"><input type="checkbox" id="useOcean" checked /><span class="slider"></span></div></label>
+          <div class="zone-box visible" id="blockOcean">
+            <div class="zone-header"><span class="status-msg" id="oceanStatus">Not picked yet.</span><div class="tol-group"><label>Tolerance <span class="info-icon tt-left" data-tooltip="0 = exact colour match only. 10+ = includes similar shades. Increase if water is left behind, decrease if land gets deleted.">?</span></label><input type="number" id="tolOcean" value="5" min="0" max="255" /></div></div>
+            <button class="btn btn-pick" id="pickOceanBtn">👆 Click here, then click on the ocean in the map</button>
+          </div>
+        </div>
+        <div class="mask-group">
+          <label class="toggle-row" for="useIce"><div class="toggle-label">🧊 Map contains Ice Areas</div><div class="switch"><input type="checkbox" id="useIce" /><span class="slider"></span></div></label>
+          <div class="zone-box" id="blockIce">
+            <div class="zone-header"><span class="status-msg" id="iceStatus">Not picked yet.</span><div class="tol-group"><label>Tolerance <span class="info-icon tt-left" data-tooltip="0 = exact colour match only. 10+ = includes similar shades. Increase if ice is left behind, decrease if land gets deleted.">?</span></label><input type="number" id="tolIce" value="5" min="0" max="255" /></div></div>
+            <button class="btn btn-pick" id="pickIceBtn">👆 Click here, then click on the ice in the map</button>
+          </div>
+        </div>
+        <button class="btn btn-preview" id="previewBtn">🔍 Preview Excluded Areas</button>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn btn-calc" id="runBtn" disabled>▶ Generate Equal Zones</button>
+      <div class="footer-row hidden" id="actionRow">
+        <button class="btn btn-reset" id="resetBtn" title="Clear zones">↺ Reset</button>
+        <button class="btn btn-export" id="exportBtn">💾 Export Map as PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <div class="stats-bar">
+      <div class="stat-item"><span class="stat-label">System Status</span><span class="stat-value" id="statStatus">Waiting for map image</span></div><div class="stat-sep"></div>
+      <div class="stat-item"><span class="stat-label">Playable Land Area</span><span class="stat-value green" id="statArea">—</span></div><div class="stat-sep"></div>
+      <div class="stat-item"><span class="stat-label">Players / Zones</span><span class="stat-value" id="statPlayers">—</span></div><div class="stat-sep"></div>
+      <div class="stat-item"><span class="stat-label">Target Area Per Player</span><span class="stat-value" id="statPerPlayer">—</span></div><div class="stat-sep"></div>
+      <div class="stat-item"><span class="stat-label" style="display:flex;align-items:center;gap:4px;">Smallest / Largest Zone <span class="info-icon tt-down" data-tooltip="Shows the size difference between the smallest and largest generated zone to ensure fairness." style="width:12px;height:12px;font-size:9px;">?</span></span><span class="stat-value" id="statDetail" style="font-size:13px;font-weight:500;">—</span></div>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div id="loadingOverlay"><div id="loadingTitle">Calculating…</div><div id="progressText"></div></div>
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+
+  <div id="tooltip">
+    <div class="tt-header"><div class="tt-dot" id="ttDot"></div><span id="ttTitle">Player 1</span></div>
+    <div class="tt-row"><span>Area</span><span id="ttArea">—</span></div>
+    <div class="tt-row"><span>Width</span><span id="ttWidth">—</span></div>
+    <div class="tt-row"><span>Height</span><span id="ttHeight">—</span></div>
+  </div>
+
+<script>
+(() => {
+  const canvasWrap  = document.getElementById('canvasWrap');
+  const canvas      = document.getElementById('canvas');
+  const ctx         = canvas.getContext('2d', { willReadFrequently: true });
+  const tooltip     = document.getElementById('tooltip');
+  const ttDot       = document.getElementById('ttDot');
+  const ttTitle     = document.getElementById('ttTitle');
+  const ttArea      = document.getElementById('ttArea');
+  const ttWidth     = document.getElementById('ttWidth');
+  const ttHeight    = document.getElementById('ttHeight');
+
+  let img = new Image();
+  let pickMode = null;
+  let oceanColor = null, iceColor = null;
+  let lastMapName = 'Chernarus', renderDone = false, isPreviewOn = false, cached = {};
+  let ownerMap = null, zoneData = [], mppGlobal = 1;
+
+  let viewScale = 1;
+  let viewX = 0, viewY = 0;
+  let isDragging = false;
+  let lastMouseX = 0, lastMouseY = 0;
+
+  const useOceanCheck = document.getElementById('useOcean');
+  const useIceCheck   = document.getElementById('useIce');
+  const blockOcean    = document.getElementById('blockOcean');
+  const blockIce      = document.getElementById('blockIce');
+  const pickOceanBtn  = document.getElementById('pickOceanBtn');
+  const pickIceBtn    = document.getElementById('pickIceBtn');
+  const previewBtn    = document.getElementById('previewBtn');
+  const runBtn        = document.getElementById('runBtn');
+  const exportBtn     = document.getElementById('exportBtn');
+  const resetBtn      = document.getElementById('resetBtn');
+  const actionRow     = document.getElementById('actionRow');
+  const oceanStatus   = document.getElementById('oceanStatus');
+  const iceStatus     = document.getElementById('iceStatus');
+  const overlay       = document.getElementById('loadingOverlay');
+  const loadingTitle  = document.getElementById('loadingTitle');
+  const progressText  = document.getElementById('progressText');
+  const statStatus    = document.getElementById('statStatus');
+  const statArea      = document.getElementById('statArea');
+  const statPlayers   = document.getElementById('statPlayers');
+  const statPerPlayer = document.getElementById('statPerPlayer');
+  const statDetail    = document.getElementById('statDetail');
+  const mapWidthInput = document.getElementById('mapWidthKm');
+
+  const CORES = navigator.hardwareConcurrency || 4;
+
+  function resetView() {
+    if (!img.src || canvas.width === 0) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    let s = Math.min((rect.width - 40) / canvas.width, (rect.height - 40) / canvas.height);
+    if (s > 1.5) s = 1.5; 
+    viewScale = s;
+    viewX = (rect.width - (canvas.width * s)) / 2;
+    viewY = (rect.height - (canvas.height * s)) / 2;
+    updateViewTransform();
+  }
+
+  function updateViewTransform() {
+    canvas.style.transform = `translate(${viewX}px, ${viewY}px) scale(${viewScale})`;
+  }
+
+  canvasWrap.addEventListener('wheel', e => {
+    if (!img.src) return;
+    e.preventDefault(); 
+    const rect = canvasWrap.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+    let newScale = viewScale * Math.pow(1.1, e.deltaY < 0 ? 1 : -1);
+    newScale = Math.max(0.02, Math.min(newScale, 100)); 
+    viewX = mouseX - ((mouseX - viewX) / viewScale) * newScale;
+    viewY = mouseY - ((mouseY - viewY) / viewScale) * newScale;
+    viewScale = newScale;
+    updateViewTransform();
+  });
+
+  canvasWrap.addEventListener('mousedown', e => {
+    if (!img.src || pickMode) return;
+    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+    isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY;
+    canvasWrap.classList.add('dragging'); e.preventDefault(); 
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    viewX += (e.clientX - lastMouseX); viewY += (e.clientY - lastMouseY);
+    lastMouseX = e.clientX; lastMouseY = e.clientY;
+    updateViewTransform();
+  });
+  window.addEventListener('mouseup', () => { if(isDragging) { isDragging = false; canvasWrap.classList.remove('dragging'); } });
+  canvasWrap.addEventListener('contextmenu', e => { if (e.target === canvas || e.target === canvasWrap) e.preventDefault(); });
+
+  function getCanvasPos(e) {
+    const rect = canvasWrap.getBoundingClientRect();
+    return { x: Math.floor((e.clientX - rect.left - viewX) / viewScale), y: Math.floor((e.clientY - rect.top - viewY) / viewScale) };
+  }
+
+  function updateUI() {
+    blockOcean.classList.toggle('visible', useOceanCheck.checked);
+    blockIce.classList.toggle('visible', useIceCheck.checked);
+    blockOcean.parentElement.style.borderBottomLeftRadius = useOceanCheck.checked ? '8px' : '0px';
+    blockOcean.parentElement.style.borderBottomRightRadius = useOceanCheck.checked ? '8px' : '0px';
+    blockIce.parentElement.style.borderBottomLeftRadius = useIceCheck.checked ? '8px' : '0px';
+    blockIce.parentElement.style.borderBottomRightRadius = useIceCheck.checked ? '8px' : '0px';
+    if (!useOceanCheck.checked) oceanColor = null;
+    if (!useIceCheck.checked) iceColor = null;
+    cached = {}; checkReady();
+  }
+  useOceanCheck.addEventListener('change', updateUI); useIceCheck.addEventListener('change', updateUI);
+
+  document.querySelectorAll('.preset-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.preset-chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); mapWidthInput.value = btn.getAttribute('data-km'); lastMapName = btn.getAttribute('data-name');
+    });
+  });
+  mapWidthInput.addEventListener('input', () => { document.querySelectorAll('.preset-chip').forEach(b => b.classList.remove('active')); lastMapName = ''; });
+
+  function setOverlay(on, title='Calculating…', prog='') { overlay.style.display=on?'flex':'none'; loadingTitle.innerHTML=title; progressText.innerHTML=prog; }
+  function chip(c) { return `<span class="color-chip" style="background:rgb(${c.r},${c.g},${c.b})"></span>RGB(${c.r},${c.g},${c.b})`; }
+
+  function resetCanvas() {
+    if (!img.src) return;
+    ctx.drawImage(img, 0, 0);
+    renderDone = false; isPreviewOn = false;
+    previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
+    ownerMap = null; zoneData = []; actionRow.classList.add('hidden');
+    statStatus.textContent = 'Zones cleared. Ready to generate.'; statArea.textContent = statPlayers.textContent = statPerPlayer.textContent = statDetail.textContent = '—';
+    checkReady();
+  }
+  resetBtn.addEventListener('click', resetCanvas);
+
+  document.getElementById('imageUpload').addEventListener('change', e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      img = new Image();
+      img.onload = () => {
+        canvas.width = img.width; canvas.height = img.height;
+        ctx.drawImage(img, 0, 0); resetView();
+        cached = {}; oceanColor = iceColor = null; pickMode = null; renderDone = false; isPreviewOn = false; ownerMap = null; zoneData = [];
+        previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); actionRow.classList.add('hidden');
+        oceanStatus.textContent = iceStatus.textContent = 'Not picked yet.'; oceanStatus.className = iceStatus.className = 'status-msg';
+        statStatus.textContent = 'Map loaded! Pick exclusion colours if needed.'; statArea.textContent = statPlayers.textContent = statPerPlayer.textContent = statDetail.textContent = '—';
+        pickOceanBtn.classList.remove('active'); pickIceBtn.classList.remove('active');
+        pickOceanBtn.textContent = '👆 Click here, then click on the ocean in the map'; pickIceBtn.textContent = '👆 Click here, then click on the ice in the map';
+        updateUI();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function startPick(type, btn, statusEl, msg) {
+    if (!img.src || canvas.width===0) return alert('Please upload a map image first.');
+    if (renderDone) resetCanvas(); 
+    if (isPreviewOn) { ctx.drawImage(img, 0, 0); isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); }
+    pickMode = type; canvasWrap.classList.add('picking');
+    pickOceanBtn.classList.remove('active'); pickIceBtn.classList.remove('active');
+    btn.classList.add('active'); statusEl.textContent = msg; btn.textContent = '… now click on the map!';
+  }
+  pickOceanBtn.addEventListener('click', () => startPick('ocean', pickOceanBtn, oceanStatus, '👆 Click the ocean area…'));
+  pickIceBtn.addEventListener('click',   () => startPick('ice',   pickIceBtn,   iceStatus,   '👆 Click an ice area…'));
+
+  canvasWrap.addEventListener('click', e => {
+    if (!pickMode || isDragging) return;
+    const { x, y } = getCanvasPos(e);
+    if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return;
+    const col = { r: ctx.getImageData(x, y, 1, 1).data[0], g: ctx.getImageData(x, y, 1, 1).data[1], b: ctx.getImageData(x, y, 1, 1).data[2] };
+    if (pickMode === 'ocean') { oceanColor = col; oceanStatus.innerHTML = `✔ ${chip(col)}`; oceanStatus.className = 'status-msg ok'; pickOceanBtn.textContent = 'Re-pick colour'; pickOceanBtn.classList.remove('active'); } 
+    else { iceColor = col; iceStatus.innerHTML = `✔ ${chip(col)}`; iceStatus.className = 'status-msg ok'; pickIceBtn.textContent = 'Re-pick colour'; pickIceBtn.classList.remove('active'); }
+    pickMode = null; canvasWrap.classList.remove('picking'); cached = {}; checkReady();
+  });
+
+  function checkReady() {
+    let ok = true;
+    if (useOceanCheck.checked && !oceanColor) ok = false;
+    if (useIceCheck.checked && !iceColor) ok = false;
+    if (ok && img.src && canvas.width > 0) { 
+      if (!renderDone && !isPreviewOn) statStatus.textContent = 'Ready — click Generate Equal Zones!'; 
+      runBtn.disabled = false;
+    } else { 
+      if (!isPreviewOn) statStatus.textContent = 'Waiting for exclusion setup...'; 
+      runBtn.disabled = true;
+    }
+  }
+
+  function computeMask() {
+    const W=canvas.width, H=canvas.height, tolO=parseInt(document.getElementById('tolOcean').value,10), tolI=parseInt(document.getElementById('tolIce').value,10);
+    const hasOcean=useOceanCheck.checked, hasIce=useIceCheck.checked;
+    if (hasOcean && !oceanColor) throw new Error('Please pick the ocean colour.');
+    if (hasIce && !iceColor) throw new Error('Please pick the ice colour.');
+
+    const cacheKey=`${W}x${H}_${tolO}_${tolI}_${JSON.stringify(oceanColor)}_${JSON.stringify(iceColor)}_${hasOcean}_${hasIce}`;
+    if (cached.key===cacheKey) return cached;
+
+    ctx.drawImage(img,0,0);
+    const data=ctx.getImageData(0,0,W,H).data;
+    let mask=new Uint8Array(W*H);
+
+    if (!hasOcean && !hasIce) { cached={key:cacheKey,mask,land:W*H}; return cached; }
+
+    const or=hasOcean?oceanColor.r:0, og=hasOcean?oceanColor.g:0, ob=hasOcean?oceanColor.b:0;
+    const ir=hasIce?iceColor.r:0, ig=hasIce?iceColor.g:0, ib=hasIce?iceColor.b:0;
+
+    for (let i=0; i<W*H; i++) {
+      const r = data[i*4], g = data[i*4+1], b = data[i*4+2];
+      if (hasOcean && Math.abs(r-or)<=tolO && Math.abs(g-og)<=tolO && Math.abs(b-ob)<=tolO) { mask[i] = 1; continue; }
+      if (hasIce && Math.abs(r-ir)<=tolI && Math.abs(g-ig)<=tolI && Math.abs(b-ib)<=tolI) mask[i] = 1;
+    }
+
+    for (let p=0;p<3;p++) {
+      const nm=new Uint8Array(mask);
+      for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (mask[y*W+x]===1) {
+        if (x>0) nm[y*W+x-1]=1; if (x<W-1) nm[y*W+x+1]=1;
+        if (y>0) nm[(y-1)*W+x]=1; if (y<H-1) nm[(y+1)*W+x]=1;
+      }
+      mask=nm;
+    }
+
+    const visited=new Uint8Array(W*H), minSize=Math.max(100,Math.floor((W*H)*0.00015));
+    let finalLand=0;
+    const q=new Int32Array(W*H);
+
+    for (let i=0;i<W*H;i++) {
+      if (mask[i]===0 && visited[i]===0) {
+        let head=0,tail=0; q[tail++]=i; visited[i]=1;
+        while (head<tail) {
+          const idx=q[head++],cx=idx%W,cy=(idx/W)|0;
+          if (cx>0)   {const ni=idx-1;if(mask[ni]===0&&visited[ni]===0){visited[ni]=1;q[tail++]=ni;}}
+          if (cx<W-1) {const ni=idx+1;if(mask[ni]===0&&visited[ni]===0){visited[ni]=1;q[tail++]=ni;}}
+          if (cy>0)   {const ni=idx-W;if(mask[ni]===0&&visited[ni]===0){visited[ni]=1;q[tail++]=ni;}}
+          if (cy<H-1) {const ni=idx+W;if(mask[ni]===0&&visited[ni]===0){visited[ni]=1;q[tail++]=ni;}}
+        }
+        if (tail<minSize) { for (let j=0;j<tail;j++) mask[q[j]]=1; } else finalLand+=tail;
+      }
+    }
+    cached={key:cacheKey,mask,land:finalLand}; return cached;
+  }
+
+  previewBtn.addEventListener('click', () => {
+    if (!img.src || canvas.width===0) return alert('No image loaded.');
+    if (runBtn.disabled && !renderDone) return alert('Please pick colors first.');
+    if (renderDone) resetCanvas();
+    if (isPreviewOn) { ctx.drawImage(img, 0, 0); isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); checkReady(); return; }
+
+    try {
+      setOverlay(true,'Detecting unplayable areas…','Applying exclusions...');
+      setTimeout(() => {
+        try {
+          const {mask}=computeMask(); ctx.drawImage(img,0,0);
+          const W=canvas.width,H=canvas.height,id=ctx.getImageData(0,0,W,H);
+          for (let i=0;i<W*H;i++) if(mask[i]){id.data[i*4]=25;id.data[i*4+1]=30;id.data[i*4+2]=80;id.data[i*4+3]=255;}
+          ctx.putImageData(id,0,0); 
+          statStatus.textContent='Preview: Dark blue areas will be ignored.'; isPreviewOn = true; previewBtn.textContent = '👁 Hide Excluded Areas'; previewBtn.classList.add('active'); setOverlay(false);
+        } catch(e) { alert(e.message); setOverlay(false); }
+      },50);
+    } catch(e){alert(e.message);setOverlay(false);}
+  });
+
+  function areaStats(land) {
+    const W=canvas.width, km=parseFloat(mapWidthInput.value);
+    const mpp=(km*1000)/W, m2pp=mpp*mpp;
+    const players=parseInt(document.getElementById('playerCount').value,10);
+    const total_m2=land*m2pp, total_km2=total_m2/1e6;
+    return {mpp, m2pp, playable_m2:total_m2, playable_km2:total_km2, perPlayer_m2:total_m2/players, perPlayer_km2:total_km2/players, playerCount:players, land};
+  }
+
+  function hsl2rgb(h,s,l){let r,g,b;if(s===0){r=g=b=l;}else{const hue=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};const q2=l<0.5?l*(1+s):l+s-l*s,p=2*l-q2;r=hue(p,q2,h+1/3);g=hue(p,q2,h);b=hue(p,q2,h-1/3);}return[Math.round(r*255),Math.round(g*255),Math.round(b*255)];}
+
+  function initCenters(lpX, lpY, count, k) {
+    const c=[]; const pick = () => { const i=Math.floor(Math.random()*count); return {x: lpX[i], y: lpY[i]}; };
+    c.push({...pick(), w:0, color:hsl2rgb(Math.random(),0.75,0.55)});
+    for(let i=1;i<k;i++){
+      let best=null, bs=-1;
+      for(let s=0;s<140;s++){
+        const p=pick(); let md=Infinity;
+        for(const ct of c){ const dx=p.x-ct.x, dy=p.y-ct.y, d=dx*dx+dy*dy; if(d<md) md=d; }
+        if(md>bs){ bs=md; best=p; }
+      }
+      c.push({...best, w:0, color:hsl2rgb((i/k+Math.random()*0.07)%1,0.75,0.55)});
+    }
+    return c;
+  }
+
+  // Multi-Grid Algorithm
+  function voronoiAsync(mask, s, done){
+    const k=s.playerCount, maxIter=parseInt(document.getElementById('vorIterations').value,10);
+    const W = canvas.width, H = canvas.height;
+
+    // Multi-grid phases: Start coarse (low res), refine over time
+    const phases = [
+      { iter: Math.floor(maxIter * 0.5), step: Math.max(1, Math.floor(W / 150)) },
+      { iter: Math.floor(maxIter * 0.3), step: Math.max(1, Math.floor(W / 300)) },
+      { iter: Math.ceil(maxIter * 0.2), step: Math.max(1, Math.floor(W / 600)) }
+    ];
+
+    let currentPhase = 0, iter = 0;
+    let lpX, lpY, lpCount, pointWeight;
+    const trueTarget = s.land / k; // Target playable pixels per center
+
+    const cx = new Float64Array(k), cy = new Float64Array(k), cw = new Float64Array(k);
+    const sx = new Float64Array(k), sy = new Float64Array(k), ct = new Int32Array(k);
+
+    let centers;
+
+    function setupPhase() {
+      const step = phases[currentPhase].step;
+      pointWeight = step * step;
+      lpCount = 0;
+      for(let y=0; y<H; y+=step) for(let x=0; x<W; x+=step) if(!mask[y*W+x]) lpCount++;
+      if(lpCount < k && currentPhase === 0) throw new Error('Not enough playable area for players.');
+
+      lpX = new Int32Array(lpCount); lpY = new Int32Array(lpCount);
+      let idx=0;
+      for(let y=0; y<H; y+=step) for(let x=0; x<W; x+=step) if(!mask[y*W+x]){ lpX[idx]=x; lpY[idx]=y; idx++; }
+
+      if(currentPhase === 0) {
+        centers = initCenters(lpX, lpY, lpCount, k);
+        for(let i=0; i<k; i++) { cx[i] = centers[i].x; cy[i] = centers[i].y; cw[i] = 0; }
+      }
+    }
+    setupPhase();
+
+    function tick() {
+      const startTime = performance.now();
+      const pIter = phases[currentPhase].iter;
+
+      while(iter < pIter && (performance.now() - startTime) < 30) {
+        sx.fill(0); sy.fill(0); ct.fill(0);
+
+        for(let i=0; i<lpCount; i++) {
+          const px = lpX[i], py = lpY[i];
+          let best = 0, bv = Infinity;
+          for(let c=0; c<k; c++) {
+            const dx = px - cx[c], dy = py - cy[c];
+            const d = dx*dx + dy*dy - cw[c];
+            if(d < bv){ bv = d; best = c; }
+          }
+          sx[best] += px; sy[best] += py; ct[best]++;
+        }
+
+        const base = W * H * 0.00000045;
+        const globalProgress = (currentPhase + iter/pIter) / phases.length;
+        const lr = base * Math.max(0.02, 1 - globalProgress);
+
+        for(let c=0; c<k; c++) {
+          if(ct[c]>0) {
+            cx[c] = cx[c]*0.25 + (sx[c]/ct[c])*0.75;
+            cy[c] = cy[c]*0.25 + (sy[c]/ct[c])*0.75;
+          }
+          cw[c] += (trueTarget - (ct[c] * pointWeight)) * lr;
+        }
+        iter++;
+      }
+
+      let globalIterStr = phases.slice(0, currentPhase).reduce((a,b)=>a+b.iter, 0) + iter;
+      progressText.textContent = `Iteration ${globalIterStr} / ${maxIter}`;
+
+      if(iter >= pIter) {
+        currentPhase++;
+        if(currentPhase >= phases.length) {
+          for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: centers[i].color };
+          done(centers); return;
+        } else {
+          iter = 0; setupPhase(); setTimeout(tick, 0);
+        }
+      } else setTimeout(tick, 0);
+    }
+    tick();
+  }
+
+  // Web Worker Parallelization Script
+  const workerCode = `
+    self.onmessage = function(e) {
+      const { W, H, startY, mask, imgSlice, cx, cy, cw, colors } = e.data;
+      const k = cx.length;
+      const out = new Uint8ClampedArray(imgSlice);
+      const ownerMap = new Int32Array(W * H).fill(-1);
+      const counts = new Int32Array(k);
+      const minX = new Int32Array(k).fill(W), maxX = new Int32Array(k).fill(0);
+      const minY = new Int32Array(k).fill(startY + H), maxY = new Int32Array(k).fill(0);
+
+      for (let y = 0; y < H; y++) {
+        const globalY = startY + y;
+        for (let x = 0; x < W; x++) {
+          const idx = y * W + x;
+          const di = idx * 4;
+
+          if (mask[idx]) {
+            out[di]   = out[di] * 0.35;
+            out[di+1] = out[di+1] * 0.35;
+            out[di+2] = out[di+2] * 0.55;
+            continue;
+          }
+
+          let best=0, bv=Infinity;
+          for(let c=0; c<k; c++) {
+            const dx = x - cx[c], dy = globalY - cy[c];
+            const d = dx*dx + dy*dy - cw[c];
+            if(d < bv) { bv = d; best = c; }
+          }
+
+          ownerMap[idx] = best;
+          counts[best]++;
+          if(x < minX[best]) minX[best] = x;
+          if(x > maxX[best]) maxX[best] = x;
+          if(globalY < minY[best]) minY[best] = globalY;
+          if(globalY > maxY[best]) maxY[best] = globalY;
+
+          const col = colors[best];
+          out[di]   = Math.min(255, out[di]*0.7 + col[0]*0.3);
+          out[di+1] = Math.min(255, out[di+1]*0.7 + col[1]*0.3);
+          out[di+2] = Math.min(255, out[di+2]*0.7 + col[2]*0.3);
+        }
+      }
+      self.postMessage({ startY, H, out: out.buffer, ownerMap: ownerMap.buffer, counts, minX, maxX, minY, maxY }, [out.buffer, ownerMap.buffer]);
+    };
+  `;
+
+  function voronoiFinalizeAsync(mask, centers, s, callback) {
+    const W = canvas.width, H = canvas.height, k = centers.length;
+    ownerMap = new Int32Array(W * H).fill(-1);
+
+    const cx = new Float64Array(k), cy = new Float64Array(k), cw = new Float64Array(k);
+    const colors = [];
+    for(let i=0; i<k; i++) { cx[i]=centers[i].x; cy[i]=centers[i].y; cw[i]=centers[i].w; colors.push(centers[i].color); }
+
+    ctx.drawImage(img, 0, 0); 
+
+    const blob = new Blob([workerCode], {type: 'application/javascript'});
+    const workerUrl = URL.createObjectURL(blob);
+
+    let workersDone = 0;
+    const chunkHeight = Math.ceil(H / CORES);
+
+    const globalCounts = new Int32Array(k);
+    const globalMinX = new Int32Array(k).fill(W), globalMaxX = new Int32Array(k).fill(0);
+    const globalMinY = new Int32Array(k).fill(H), globalMaxY = new Int32Array(k).fill(0);
+
+    for(let i=0; i<CORES; i++) {
+      const startY = i * chunkHeight;
+      if(startY >= H) { workersDone++; continue; }
+      const ch = Math.min(chunkHeight, H - startY);
+
+      const worker = new Worker(workerUrl);
+      const imgSliceData = ctx.getImageData(0, startY, W, ch);
+      const maskSlice = mask.subarray(startY * W, (startY + ch) * W);
+
+      worker.onmessage = function(e) {
+        // FIX: Extract `ownerMap` directly into the `ownerMapSlice` variable.
+        const { startY: sy, H: sh, out, ownerMap: ownerMapSlice, counts, minX, maxX, minY, maxY } = e.data;
+
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(out), W, sh), 0, sy);
+        ownerMap.set(new Int32Array(ownerMapSlice), sy * W);
+
+        for(let c=0; c<k; c++) {
+          globalCounts[c] += counts[c];
+          if(minX[c] < globalMinX[c]) globalMinX[c] = minX[c];
+          if(maxX[c] > globalMaxX[c]) globalMaxX[c] = maxX[c];
+          if(minY[c] < globalMinY[c]) globalMinY[c] = minY[c];
+          if(maxY[c] > globalMaxY[c]) globalMaxY[c] = maxY[c];
+        }
+
+        worker.terminate();
+        workersDone++;
+        if(workersDone === CORES) {
+          URL.revokeObjectURL(workerUrl);
+          finalizeBordersAndStats();
+        }
+      };
+      worker.postMessage({ W, H: ch, startY, mask: maskSlice, imgSlice: imgSliceData.data.buffer, cx, cy, cw, colors }, [imgSliceData.data.buffer]);
+    }
+
+    function finalizeBordersAndStats() {
+      const finalImg = ctx.getImageData(0, 0, W, H);
+      const data = finalImg.data;
+      for(let y=1; y<H-1; y++) {
+        for(let x=1; x<W-1; x++) {
+          const idx = y*W + x;
+          if(mask[idx]) continue;
+          const o = ownerMap[idx];
+          if((ownerMap[idx+1] !== -1 && ownerMap[idx+1] !== o) || (ownerMap[idx+W] !== -1 && ownerMap[idx+W] !== o)) {
+             const di = idx * 4;
+             data[di] = data[di+1] = data[di+2] = data[di+3] = 255;
+          }
+        }
+      }
+      ctx.putImageData(finalImg, 0, 0);
+
+      for(const c of centers){
+        ctx.beginPath();ctx.arc(c.x,c.y,4,0,2*Math.PI);
+        ctx.fillStyle='#000';ctx.fill();
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+      }
+
+      zoneData=[]; mppGlobal=s.mpp;
+      for(let c=0; c<k; c++) {
+        const col=centers[c].color;
+        zoneData.push({
+          area_km2: globalCounts[c]*s.m2pp/1e6, width_m: Math.round((globalMaxX[c]-globalMinX[c])*s.mpp), height_m: Math.round((globalMaxY[c]-globalMinY[c])*s.mpp), color: `rgb(${col[0]},${col[1]},${col[2]})`
+        });
+      }
+      let minP=Infinity,maxP=0;
+      for(let c=0;c<k;c++){if(globalCounts[c]<minP)minP=globalCounts[c];if(globalCounts[c]>maxP)maxP=globalCounts[c];}
+      const str = `${(minP*s.m2pp/1e6).toFixed(2)} km² / ${(maxP*s.m2pp/1e6).toFixed(2)} km²`;
+      callback(str);
+    }
+  }
+
+  canvasWrap.addEventListener('mousemove', e => {
+    if (!ownerMap || !renderDone || isDragging || pickMode) return;
+    const { x, y } = getCanvasPos(e);
+    if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height){ tooltip.style.display='none'; return; }
+    const zone = ownerMap[y * canvas.width + x];
+    if (zone === -1){ tooltip.style.display='none'; return; }
+
+    const zd = zoneData[zone];
+    ttDot.style.background = zd.color; ttTitle.textContent = `Zone ${zone+1}`;
+    ttArea.textContent = `${zd.area_km2.toFixed(3)} km²`; ttWidth.textContent = `${zd.width_m.toLocaleString('en-US')} m`; ttHeight.textContent = `${zd.height_m.toLocaleString('en-US')} m`;
+
+    const tw = tooltip.offsetWidth || 180, th = tooltip.offsetHeight || 100;
+    let tx = e.clientX + 14, ty = e.clientY - 10;
+    if (tx + tw > window.innerWidth - 10) tx = e.clientX - tw - 14;
+    if (ty + th > window.innerHeight - 10) ty = e.clientY - th - 10;
+
+    tooltip.style.left = tx + 'px'; tooltip.style.top = ty + 'px'; tooltip.style.display = 'block';
+  });
+  canvasWrap.addEventListener('mouseleave', () => { tooltip.style.display='none'; });
+
+  runBtn.addEventListener('click', () => {
+    if(!img.src||canvas.width===0) return alert('Please upload an image first.');
+    try {
+      setOverlay(true,'Detecting unplayable areas…','(This takes a moment)');
+      setTimeout(()=>{
+        try {
+          ctx.drawImage(img,0,0);
+          const {mask,land}=computeMask(),s=areaStats(land);
+          statArea.textContent=`${s.playable_km2.toFixed(2)} km²`; statPlayers.textContent=`${s.playerCount}`; statPerPlayer.textContent=`${s.perPlayer_km2.toFixed(3)} km²`;
+          ownerMap=null; zoneData=[];
+          isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
+
+          function finish(d){
+            statStatus.textContent='Done ✔ — Hover over map for details'; statDetail.textContent=d;
+            renderDone=true; actionRow.classList.remove('hidden'); setOverlay(false); runBtn.disabled=false;
+          }
+
+          setOverlay(true,'Balancing zone sizes...','Making all zones as equal as possible');
+          statStatus.textContent='Calculating…'; runBtn.disabled=true;
+          voronoiAsync(mask, s, centers => {
+             setOverlay(true,'Drawing Map...', `Applying zone colors`);
+             setTimeout(() => voronoiFinalizeAsync(mask, centers, s, finish), 50);
+          });
+        } catch(e){alert(e.message);setOverlay(false);runBtn.disabled=false;}
+      },50);
+    } catch(e){alert(e.message);setOverlay(false);runBtn.disabled=false;}
+  });
+
+  exportBtn.addEventListener('click', () => {
+    if(!renderDone)return;
+    const players=document.getElementById('playerCount').value;
+    const fn=lastMapName?`DayZ_${lastMapName}_Zones_${players}p.png`:`DayZ_Map_Zones_${players}p.png`;
+    const a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download=fn;a.click();
+  });
+})();
+</script>
+</body>
+</html>
