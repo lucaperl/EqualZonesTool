@@ -157,6 +157,48 @@
     }
     input[type=number]:focus { border-color: var(--accent); }
 
+    /* Range Slider */
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      margin-top: 4px;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #444;
+      border-radius: 3px;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #222;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #222;
+    }
+    #opacityValue {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      min-width: 32px;
+    }
+
     input[type=file] { 
       background: var(--bg-input); border: 1px dashed #555; border-radius: 6px; padding: 12px; 
       font-size: 12px; width: 100%; color: #aaa; cursor: pointer; transition: border-color 0.2s;
@@ -302,6 +344,16 @@
         </div>
         <button class="btn btn-preview" id="previewBtn">🔍 Preview Excluded Areas</button>
       </div>
+      <div class="section hidden" id="styleSection">
+        <div class="section-title">5. Appearance</div>
+        <label class="field-label">
+          <span class="label-with-icon">Zone Opacity <span class="info-icon tt-down" data-tooltip="Adjust how brightly the zone colors overlay the base map.">?</span></span>
+          <div class="slider-container">
+            <input type="range" id="opacitySlider" min="0.05" max="0.85" step="0.01" value="0.35" />
+            <span id="opacityValue">35%</span>
+          </div>
+        </label>
+      </div>
     </div>
     <div class="sidebar-footer">
       <button class="btn btn-calc" id="runBtn" disabled>▶ Generate Equal Zones</button>
@@ -345,6 +397,10 @@
   const ttWidth     = document.getElementById('ttWidth');
   const ttHeight    = document.getElementById('ttHeight');
 
+  const baseCanvas = document.createElement('canvas');
+  const zonesCanvas = document.createElement('canvas');
+  const bordersCanvas = document.createElement('canvas');
+
   let img = new Image();
   let pickMode = null;
   let oceanColor = null, iceColor = null;
@@ -378,6 +434,9 @@
   const statPerPlayer = document.getElementById('statPerPlayer');
   const statDetail    = document.getElementById('statDetail');
   const mapWidthInput = document.getElementById('mapWidthKm');
+  const styleSection  = document.getElementById('styleSection');
+  const opacitySlider = document.getElementById('opacitySlider');
+  const opacityValue  = document.getElementById('opacityValue');
 
   const CORES = navigator.hardwareConcurrency || 4;
 
@@ -459,6 +518,7 @@
     renderDone = false; isPreviewOn = false;
     previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
     ownerMap = null; zoneData = []; actionRow.classList.add('hidden');
+    styleSection.classList.add('hidden');
     statStatus.textContent = 'Zones cleared. Ready to generate.'; statArea.textContent = statPlayers.textContent = statPerPlayer.textContent = statDetail.textContent = '—';
     checkReady();
   }
@@ -474,6 +534,7 @@
         ctx.drawImage(img, 0, 0); resetView();
         cached = {}; oceanColor = iceColor = null; pickMode = null; renderDone = false; isPreviewOn = false; ownerMap = null; zoneData = [];
         previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); actionRow.classList.add('hidden');
+        styleSection.classList.add('hidden');
         oceanStatus.textContent = iceStatus.textContent = 'Not picked yet.'; oceanStatus.className = iceStatus.className = 'status-msg';
         statStatus.textContent = 'Map loaded! Pick exclusion colours if needed.'; statArea.textContent = statPlayers.textContent = statPerPlayer.textContent = statDetail.textContent = '—';
         pickOceanBtn.classList.remove('active'); pickIceBtn.classList.remove('active');
@@ -598,7 +659,6 @@
   });
 
   function handleToleranceInput() {
-    // Break the cache whenever they adjust the input
     cached = {};
     if (isPreviewOn) {
       clearTimeout(previewTimeout);
@@ -621,15 +681,17 @@
 
   function initCenters(lpX, lpY, count, k) {
     const c=[]; const pick = () => { const i=Math.floor(Math.random()*count); return {x: lpX[i], y: lpY[i]}; };
-    c.push({...pick(), w:0, color:hsl2rgb(Math.random(),0.75,0.55)});
-    for(let i=1;i<k;i++){
+    for(let i=0; i<k; i++){
       let best=null, bs=-1;
-      for(let s=0;s<140;s++){
-        const p=pick(); let md=Infinity;
-        for(const ct of c){ const dx=p.x-ct.x, dy=p.y-ct.y, d=dx*dx+dy*dy; if(d<md) md=d; }
-        if(md>bs){ bs=md; best=p; }
+      if (i===0) best = pick();
+      else {
+        for(let s=0; s<150; s++){
+          const p=pick(); let md=Infinity;
+          for(const ct of c){ const dx=p.x-ct.x, dy=p.y-ct.y, d=dx*dx+dy*dy; if(d<md) md=d; }
+          if(md>bs){ bs=md; best=p; }
+        }
       }
-      c.push({...best, w:0, color:hsl2rgb((i/k+Math.random()*0.07)%1,0.75,0.55)});
+      c.push({...best, w:0, color:[0,0,0]}); // Dummy color, applied later
     }
     return c;
   }
@@ -639,7 +701,6 @@
     const k=s.playerCount, maxIter=parseInt(document.getElementById('vorIterations').value,10);
     const W = canvas.width, H = canvas.height;
 
-    // Multi-grid phases: Start coarse (low res), refine over time
     const phases = [
       { iter: Math.floor(maxIter * 0.5), step: Math.max(1, Math.floor(W / 150)) },
       { iter: Math.floor(maxIter * 0.3), step: Math.max(1, Math.floor(W / 300)) },
@@ -648,7 +709,7 @@
 
     let currentPhase = 0, iter = 0;
     let lpX, lpY, lpCount, pointWeight;
-    const trueTarget = s.land / k; // Target playable pixels per center
+    const trueTarget = s.land / k;
 
     const cx = new Float64Array(k), cy = new Float64Array(k), cw = new Float64Array(k);
     const sx = new Float64Array(k), sy = new Float64Array(k), ct = new Int32Array(k);
@@ -711,7 +772,55 @@
       if(iter >= pIter) {
         currentPhase++;
         if(currentPhase >= phases.length) {
-          for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: centers[i].color };
+
+          // INTELLIGENT GREEDY COLORING
+          const pool = [];
+          for(let i=0; i<k; i++) {
+             const h = (i * 0.618033988749895) % 1;
+             const sat = 0.60 + ((i % 3) * 0.15); 
+             const lit = 0.45 + (((i * 7) % 4) * 0.08); 
+             pool.push(hsl2rgb(h, sat, lit));
+          }
+
+          for (let i = pool.length - 1; i > 0; i--) {
+             const j = Math.floor(Math.random() * (i + 1));
+             [pool[i], pool[j]] = [pool[j], pool[i]];
+          }
+
+          if (k <= 800) {
+             const assigned = new Array(k).fill(null);
+             for (let i = 0; i < k; i++) {
+                let bestIdx = 0, maxMinScore = -1;
+                for (let p = 0; p < pool.length; p++) {
+                   const cColor = pool[p];
+                   let minScore = Infinity, checkedAny = false;
+                   for (let j = 0; j < i; j++) {
+                      const aColor = assigned[j];
+                      const dx = cx[i] - cx[j], dy = cy[i] - cy[j];
+                      const physDist = Math.max(1, Math.sqrt(dx*dx + dy*dy));
+
+                      // Only check colors of nearby neighbors (within half the map)
+                      if (physDist > W/2) continue;
+                      checkedAny = true;
+
+                      const dr = cColor[0] - aColor[0], dg = cColor[1] - aColor[1], db = cColor[2] - aColor[2];
+                      const colDist = Math.sqrt(dr*dr + dg*dg + db*db);
+
+                      const score = colDist * physDist;
+                      if (score < minScore) minScore = score;
+                   }
+                   if (!checkedAny) minScore = 1;
+                   if (minScore > maxMinScore) { maxMinScore = minScore; bestIdx = p; }
+                }
+                assigned[i] = pool[bestIdx];
+                pool.splice(bestIdx, 1);
+             }
+             for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: assigned[i] };
+          } else {
+             // Fallback for extreme player counts
+             for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: pool[i] };
+          }
+
           done(centers); return;
         } else {
           iter = 0; setupPhase(); setTimeout(tick, 0);
@@ -721,12 +830,13 @@
     tick();
   }
 
-  // Web Worker Parallelization Script
+  // Web Worker for mapping zones to a separate transparent overlay
   const workerCode = `
     self.onmessage = function(e) {
-      const { W, H, startY, mask, imgSlice, cx, cy, cw, colors } = e.data;
+      const { W, H, startY, mask, cx, cy, cw, colors } = e.data;
       const k = cx.length;
-      const out = new Uint8ClampedArray(imgSlice);
+
+      const zonesOut = new Uint8ClampedArray(W * H * 4); // all 0 (transparent) initially
       const ownerMap = new Int32Array(W * H).fill(-1);
       const counts = new Int32Array(k);
       const minX = new Int32Array(k).fill(W), maxX = new Int32Array(k).fill(0);
@@ -738,12 +848,7 @@
           const idx = y * W + x;
           const di = idx * 4;
 
-          if (mask[idx]) {
-            out[di]   = out[di] * 0.35;
-            out[di+1] = out[di+1] * 0.35;
-            out[di+2] = out[di+2] * 0.55;
-            continue;
-          }
+          if (mask[idx]) continue;
 
           let best=0, bv=Infinity;
           for(let c=0; c<k; c++) {
@@ -760,24 +865,58 @@
           if(globalY > maxY[best]) maxY[best] = globalY;
 
           const col = colors[best];
-          out[di]   = Math.min(255, out[di]*0.7 + col[0]*0.3);
-          out[di+1] = Math.min(255, out[di+1]*0.7 + col[1]*0.3);
-          out[di+2] = Math.min(255, out[di+2]*0.7 + col[2]*0.3);
+          zonesOut[di]   = col[0];
+          zonesOut[di+1] = col[1];
+          zonesOut[di+2] = col[2];
+          zonesOut[di+3] = 255;
         }
       }
-      self.postMessage({ startY, H, out: out.buffer, ownerMap: ownerMap.buffer, counts, minX, maxX, minY, maxY }, [out.buffer, ownerMap.buffer]);
+      self.postMessage({ startY, H, zonesOut: zonesOut.buffer, ownerMap: ownerMap.buffer, counts, minX, maxX, minY, maxY }, [zonesOut.buffer, ownerMap.buffer]);
     };
   `;
 
+  function refreshMainCanvas() {
+    if (!renderDone || baseCanvas.width === 0) return;
+    const op = opacitySlider.value;
+    opacityValue.textContent = Math.round(op * 100) + '%';
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(baseCanvas, 0, 0);
+
+    ctx.globalAlpha = op;
+    ctx.drawImage(zonesCanvas, 0, 0);
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(bordersCanvas, 0, 0);
+  }
+
+  opacitySlider.addEventListener('input', refreshMainCanvas);
+
   function voronoiFinalizeAsync(mask, centers, s, callback) {
     const W = canvas.width, H = canvas.height, k = centers.length;
+
+    baseCanvas.width = zonesCanvas.width = bordersCanvas.width = W;
+    baseCanvas.height = zonesCanvas.height = bordersCanvas.height = H;
+
+    const baseCtx = baseCanvas.getContext('2d');
+    baseCtx.drawImage(img, 0, 0);
+    const bData = baseCtx.getImageData(0,0,W,H);
+    for(let i=0; i<W*H; i++) {
+        if(mask[i]) { 
+            bData.data[i*4]   = bData.data[i*4] * 0.35; 
+            bData.data[i*4+1] = bData.data[i*4+1] * 0.35; 
+            bData.data[i*4+2] = bData.data[i*4+2] * 0.55; 
+        }
+    }
+    baseCtx.putImageData(bData, 0, 0);
+
     ownerMap = new Int32Array(W * H).fill(-1);
 
     const cx = new Float64Array(k), cy = new Float64Array(k), cw = new Float64Array(k);
     const colors = [];
     for(let i=0; i<k; i++) { cx[i]=centers[i].x; cy[i]=centers[i].y; cw[i]=centers[i].w; colors.push(centers[i].color); }
-
-    ctx.drawImage(img, 0, 0); 
 
     const blob = new Blob([workerCode], {type: 'application/javascript'});
     const workerUrl = URL.createObjectURL(blob);
@@ -789,20 +928,20 @@
     const globalMinX = new Int32Array(k).fill(W), globalMaxX = new Int32Array(k).fill(0);
     const globalMinY = new Int32Array(k).fill(H), globalMaxY = new Int32Array(k).fill(0);
 
+    const zonesCtx = zonesCanvas.getContext('2d');
+
     for(let i=0; i<CORES; i++) {
       const startY = i * chunkHeight;
       if(startY >= H) { workersDone++; continue; }
       const ch = Math.min(chunkHeight, H - startY);
 
       const worker = new Worker(workerUrl);
-      const imgSliceData = ctx.getImageData(0, startY, W, ch);
       const maskSlice = mask.subarray(startY * W, (startY + ch) * W);
 
       worker.onmessage = function(e) {
-        // FIX: Extract `ownerMap` directly into the `ownerMapSlice` variable.
-        const { startY: sy, H: sh, out, ownerMap: ownerMapSlice, counts, minX, maxX, minY, maxY } = e.data;
+        const { startY: sy, H: sh, zonesOut, ownerMap: ownerMapSlice, counts, minX, maxX, minY, maxY } = e.data;
 
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(out), W, sh), 0, sy);
+        zonesCtx.putImageData(new ImageData(new Uint8ClampedArray(zonesOut), W, sh), 0, sy);
         ownerMap.set(new Int32Array(ownerMapSlice), sy * W);
 
         for(let c=0; c<k; c++) {
@@ -820,12 +959,15 @@
           finalizeBordersAndStats();
         }
       };
-      worker.postMessage({ W, H: ch, startY, mask: maskSlice, imgSlice: imgSliceData.data.buffer, cx, cy, cw, colors }, [imgSliceData.data.buffer]);
+
+      worker.postMessage({ W, H: ch, startY, mask: maskSlice, cx, cy, cw, colors });
     }
 
     function finalizeBordersAndStats() {
-      const finalImg = ctx.getImageData(0, 0, W, H);
-      const data = finalImg.data;
+      const bordersCtx = bordersCanvas.getContext('2d');
+      const bImgData = new ImageData(W, H);
+      const bd = bImgData.data;
+
       for(let y=1; y<H-1; y++) {
         for(let x=1; x<W-1; x++) {
           const idx = y*W + x;
@@ -833,17 +975,20 @@
           const o = ownerMap[idx];
           if((ownerMap[idx+1] !== -1 && ownerMap[idx+1] !== o) || (ownerMap[idx+W] !== -1 && ownerMap[idx+W] !== o)) {
              const di = idx * 4;
-             data[di] = data[di+1] = data[di+2] = data[di+3] = 255;
+             bd[di] = bd[di+1] = bd[di+2] = bd[di+3] = 255;
           }
         }
       }
-      ctx.putImageData(finalImg, 0, 0);
+      bordersCtx.putImageData(bImgData, 0, 0);
 
       for(const c of centers){
-        ctx.beginPath();ctx.arc(c.x,c.y,4,0,2*Math.PI);
-        ctx.fillStyle='#000';ctx.fill();
-        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+        bordersCtx.beginPath(); bordersCtx.arc(c.x,c.y,4,0,2*Math.PI);
+        bordersCtx.fillStyle='#000'; bordersCtx.fill();
+        bordersCtx.strokeStyle='#fff'; bordersCtx.lineWidth=1.5; bordersCtx.stroke();
       }
+
+      renderDone = true;
+      refreshMainCanvas();
 
       zoneData=[]; mppGlobal=s.mpp;
       for(let c=0; c<k; c++) {
@@ -855,6 +1000,8 @@
       let minP=Infinity,maxP=0;
       for(let c=0;c<k;c++){if(globalCounts[c]<minP)minP=globalCounts[c];if(globalCounts[c]>maxP)maxP=globalCounts[c];}
       const str = `${(minP*s.m2pp/1e6).toFixed(2)} km² / ${(maxP*s.m2pp/1e6).toFixed(2)} km²`;
+
+      styleSection.classList.remove('hidden');
       callback(str);
     }
   }
@@ -890,10 +1037,11 @@
           statArea.textContent=`${s.playable_km2.toFixed(2)} km²`; statPlayers.textContent=`${s.playerCount}`; statPerPlayer.textContent=`${s.perPlayer_km2.toFixed(3)} km²`;
           ownerMap=null; zoneData=[];
           isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
+          styleSection.classList.add('hidden');
 
           function finish(d){
             statStatus.textContent='Done ✔ — Hover over map for details'; statDetail.textContent=d;
-            renderDone=true; actionRow.classList.remove('hidden'); setOverlay(false); runBtn.disabled=false;
+            actionRow.classList.remove('hidden'); setOverlay(false); runBtn.disabled=false;
           }
 
           setOverlay(true,'Balancing zone sizes...','Making all zones as equal as possible');
