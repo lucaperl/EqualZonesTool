@@ -572,12 +572,9 @@
     cached={key:cacheKey,mask,land:finalLand}; return cached;
   }
 
-  previewBtn.addEventListener('click', () => {
-    if (!img.src || canvas.width===0) return alert('No image loaded.');
-    if (runBtn.disabled && !renderDone) return alert('Please pick colors first.');
-    if (renderDone) resetCanvas();
-    if (isPreviewOn) { ctx.drawImage(img, 0, 0); isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); checkReady(); return; }
-
+  let previewTimeout;
+  function renderPreview() {
+    if (!img.src || canvas.width===0) return;
     try {
       setOverlay(true,'Detecting unplayable areas…','Applying exclusions...');
       setTimeout(() => {
@@ -590,7 +587,27 @@
         } catch(e) { alert(e.message); setOverlay(false); }
       },50);
     } catch(e){alert(e.message);setOverlay(false);}
+  }
+
+  previewBtn.addEventListener('click', () => {
+    if (!img.src || canvas.width===0) return alert('No image loaded.');
+    if (runBtn.disabled && !renderDone) return alert('Please pick colors first.');
+    if (renderDone) resetCanvas();
+    if (isPreviewOn) { ctx.drawImage(img, 0, 0); isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); checkReady(); return; }
+    renderPreview();
   });
+
+  function handleToleranceInput() {
+    // Break the cache whenever they adjust the input
+    cached = {};
+    if (isPreviewOn) {
+      clearTimeout(previewTimeout);
+      previewTimeout = setTimeout(() => { renderPreview(); }, 250);
+    }
+  }
+
+  document.getElementById('tolOcean').addEventListener('input', handleToleranceInput);
+  document.getElementById('tolIce').addEventListener('input', handleToleranceInput);
 
   function areaStats(land) {
     const W=canvas.width, km=parseFloat(mapWidthInput.value);
