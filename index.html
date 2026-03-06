@@ -397,15 +397,19 @@
   const ttWidth     = document.getElementById('ttWidth');
   const ttHeight    = document.getElementById('ttHeight');
 
-  const baseCanvas = document.createElement('canvas');
-  const zonesCanvas = document.createElement('canvas');
-  const bordersCanvas = document.createElement('canvas');
+  // Unified memory buffers (Replaces offscreen canvases to fix VRAM memory limits)
+  let baseImgData = null;
+  let renderBuffer = null;
+  let borderMap = null;
+  let globalOwnerMap = null;
+  let zoneColors = [];
+  let centersGlobal = [];
 
   let img = new Image();
   let pickMode = null;
   let oceanColor = null, iceColor = null;
   let lastMapName = 'Chernarus', renderDone = false, isPreviewOn = false, cached = {};
-  let ownerMap = null, zoneData = [], mppGlobal = 1;
+  let zoneData = [], mppGlobal = 1;
 
   let viewScale = 1;
   let viewX = 0, viewY = 0;
@@ -517,8 +521,12 @@
     ctx.drawImage(img, 0, 0);
     renderDone = false; isPreviewOn = false;
     previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
-    ownerMap = null; zoneData = []; actionRow.classList.add('hidden');
+
+    // Clear out massive arrays to free RAM
+    globalOwnerMap = null; baseImgData = null; renderBuffer = null; borderMap = null;
+    zoneData = []; actionRow.classList.add('hidden');
     styleSection.classList.add('hidden');
+
     statStatus.textContent = 'Zones cleared. Ready to generate.'; statArea.textContent = statPlayers.textContent = statPerPlayer.textContent = statDetail.textContent = '—';
     checkReady();
   }
@@ -532,7 +540,8 @@
       img.onload = () => {
         canvas.width = img.width; canvas.height = img.height;
         ctx.drawImage(img, 0, 0); resetView();
-        cached = {}; oceanColor = iceColor = null; pickMode = null; renderDone = false; isPreviewOn = false; ownerMap = null; zoneData = [];
+        cached = {}; oceanColor = iceColor = null; pickMode = null; renderDone = false; isPreviewOn = false; zoneData = [];
+        globalOwnerMap = null; baseImgData = null; renderBuffer = null; borderMap = null;
         previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active'); actionRow.classList.add('hidden');
         styleSection.classList.add('hidden');
         oceanStatus.textContent = iceStatus.textContent = 'Not picked yet.'; oceanStatus.className = iceStatus.className = 'status-msg';
@@ -691,7 +700,7 @@
           if(md>bs){ bs=md; best=p; }
         }
       }
-      c.push({...best, w:0, color:[0,0,0]}); // Dummy color, applied later
+      c.push({...best, w:0, color:[0,0,0]}); 
     }
     return c;
   }
@@ -799,7 +808,6 @@
                       const dx = cx[i] - cx[j], dy = cy[i] - cy[j];
                       const physDist = Math.max(1, Math.sqrt(dx*dx + dy*dy));
 
-                      // Only check colors of nearby neighbors (within half the map)
                       if (physDist > W/2) continue;
                       checkedAny = true;
 
@@ -817,7 +825,6 @@
              }
              for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: assigned[i] };
           } else {
-             // Fallback for extreme player counts
              for(let i=0; i<k; i++) centers[i] = { x: cx[i], y: cy[i], w: cw[i], color: pool[i] };
           }
 
@@ -830,13 +837,12 @@
     tick();
   }
 
-  // Web Worker for mapping zones to a separate transparent overlay
+  // Optimized lightweight Web Worker returns only pure zone mappings (NO offscreen canvases needed)
   const workerCode = `
     self.onmessage = function(e) {
-      const { W, H, startY, mask, cx, cy, cw, colors } = e.data;
+      const { W, H, startY, mask, cx, cy, cw } = e.data;
       const k = cx.length;
 
-      const zonesOut = new Uint8ClampedArray(W * H * 4); // all 0 (transparent) initially
       const ownerMap = new Int32Array(W * H).fill(-1);
       const counts = new Int32Array(k);
       const minX = new Int32Array(k).fill(W), maxX = new Int32Array(k).fill(0);
@@ -846,7 +852,6 @@
         const globalY = startY + y;
         for (let x = 0; x < W; x++) {
           const idx = y * W + x;
-          const di = idx * 4;
 
           if (mask[idx]) continue;
 
@@ -863,46 +868,76 @@
           if(x > maxX[best]) maxX[best] = x;
           if(globalY < minY[best]) minY[best] = globalY;
           if(globalY > maxY[best]) maxY[best] = globalY;
-
-          const col = colors[best];
-          zonesOut[di]   = col[0];
-          zonesOut[di+1] = col[1];
-          zonesOut[di+2] = col[2];
-          zonesOut[di+3] = 255;
         }
       }
-      self.postMessage({ startY, H, zonesOut: zonesOut.buffer, ownerMap: ownerMap.buffer, counts, minX, maxX, minY, maxY }, [zonesOut.buffer, ownerMap.buffer]);
+      self.postMessage({ startY, H, ownerMap: ownerMap.buffer, counts, minX, maxX, minY, maxY }, [ownerMap.buffer]);
     };
   `;
 
-  function refreshMainCanvas() {
-    if (!renderDone || baseCanvas.width === 0) return;
+  let renderTimeout;
+  opacitySlider.addEventListener('input', () => {
     const op = opacitySlider.value;
     opacityValue.textContent = Math.round(op * 100) + '%';
+    if (!renderDone) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Debounce the heavy rendering loop to prevent freezing while dragging
+    clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(() => {
+      refreshMainCanvas();
+    }, 120);
+  });
 
-    ctx.globalAlpha = 1.0;
-    ctx.drawImage(baseCanvas, 0, 0);
+  // Fast direct memory manipulation renderer (bypasses browser canvas RAM caps)
+  function refreshMainCanvas() {
+    if (!renderDone || !baseImgData || !renderBuffer) return;
 
-    ctx.globalAlpha = op;
-    ctx.drawImage(zonesCanvas, 0, 0);
+    const op = parseFloat(opacitySlider.value);
+    const W = canvas.width, H = canvas.height;
+    const len = W * H;
 
-    ctx.globalAlpha = 1.0;
-    ctx.drawImage(bordersCanvas, 0, 0);
+    // Process pixel-by-pixel
+    for (let i = 0; i < len; i++) {
+        const di = i * 4;
+
+        if (borderMap[i]) {
+            renderBuffer[di]   = 255;
+            renderBuffer[di+1] = 255;
+            renderBuffer[di+2] = 255;
+            renderBuffer[di+3] = 255;
+        } else {
+            const z = globalOwnerMap[i];
+            if (z !== -1) {
+                const col = zoneColors[z];
+                renderBuffer[di]   = baseImgData[di]   * (1 - op) + col[0] * op;
+                renderBuffer[di+1] = baseImgData[di+1] * (1 - op) + col[1] * op;
+                renderBuffer[di+2] = baseImgData[di+2] * (1 - op) + col[2] * op;
+                renderBuffer[di+3] = 255;
+            } else {
+                renderBuffer[di]   = baseImgData[di];
+                renderBuffer[di+1] = baseImgData[di+1];
+                renderBuffer[di+2] = baseImgData[di+2];
+                renderBuffer[di+3] = baseImgData[di+3];
+            }
+        }
+    }
+
+    // Paint everything onto the primary visible canvas at once
+    ctx.putImageData(new ImageData(renderBuffer, W, H), 0, 0);
+
+    // Stroke zone centers over the top
+    for(const c of centersGlobal){
+        ctx.beginPath(); ctx.arc(c.x,c.y,4,0,2*Math.PI);
+        ctx.fillStyle='#000'; ctx.fill();
+        ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    }
   }
-
-  opacitySlider.addEventListener('input', refreshMainCanvas);
 
   function voronoiFinalizeAsync(mask, centers, s, callback) {
     const W = canvas.width, H = canvas.height, k = centers.length;
 
-    baseCanvas.width = zonesCanvas.width = bordersCanvas.width = W;
-    baseCanvas.height = zonesCanvas.height = bordersCanvas.height = H;
-
-    const baseCtx = baseCanvas.getContext('2d');
-    baseCtx.drawImage(img, 0, 0);
-    const bData = baseCtx.getImageData(0,0,W,H);
+    // 1. Bake the base map to main memory
+    ctx.drawImage(img, 0, 0);
+    const bData = ctx.getImageData(0,0,W,H);
     for(let i=0; i<W*H; i++) {
         if(mask[i]) { 
             bData.data[i*4]   = bData.data[i*4] * 0.35; 
@@ -910,13 +945,14 @@
             bData.data[i*4+2] = bData.data[i*4+2] * 0.55; 
         }
     }
-    baseCtx.putImageData(bData, 0, 0);
 
-    ownerMap = new Int32Array(W * H).fill(-1);
+    // Retain these buffers in RAM instead of GPU Canvas to avoid breaking browser limits
+    baseImgData = bData.data; 
+    renderBuffer = new Uint8ClampedArray(baseImgData.length);
+    globalOwnerMap = new Int32Array(W * H).fill(-1);
 
     const cx = new Float64Array(k), cy = new Float64Array(k), cw = new Float64Array(k);
-    const colors = [];
-    for(let i=0; i<k; i++) { cx[i]=centers[i].x; cy[i]=centers[i].y; cw[i]=centers[i].w; colors.push(centers[i].color); }
+    for(let i=0; i<k; i++) { cx[i]=centers[i].x; cy[i]=centers[i].y; cw[i]=centers[i].w; }
 
     const blob = new Blob([workerCode], {type: 'application/javascript'});
     const workerUrl = URL.createObjectURL(blob);
@@ -928,8 +964,6 @@
     const globalMinX = new Int32Array(k).fill(W), globalMaxX = new Int32Array(k).fill(0);
     const globalMinY = new Int32Array(k).fill(H), globalMaxY = new Int32Array(k).fill(0);
 
-    const zonesCtx = zonesCanvas.getContext('2d');
-
     for(let i=0; i<CORES; i++) {
       const startY = i * chunkHeight;
       if(startY >= H) { workersDone++; continue; }
@@ -939,10 +973,9 @@
       const maskSlice = mask.subarray(startY * W, (startY + ch) * W);
 
       worker.onmessage = function(e) {
-        const { startY: sy, H: sh, zonesOut, ownerMap: ownerMapSlice, counts, minX, maxX, minY, maxY } = e.data;
+        const { startY: sy, H: sh, ownerMap: ownerMapSlice, counts, minX, maxX, minY, maxY } = e.data;
 
-        zonesCtx.putImageData(new ImageData(new Uint8ClampedArray(zonesOut), W, sh), 0, sy);
-        ownerMap.set(new Int32Array(ownerMapSlice), sy * W);
+        globalOwnerMap.set(new Int32Array(ownerMapSlice), sy * W);
 
         for(let c=0; c<k; c++) {
           globalCounts[c] += counts[c];
@@ -960,32 +993,28 @@
         }
       };
 
-      worker.postMessage({ W, H: ch, startY, mask: maskSlice, cx, cy, cw, colors });
+      worker.postMessage({ W, H: ch, startY, mask: maskSlice, cx, cy, cw });
     }
 
     function finalizeBordersAndStats() {
-      const bordersCtx = bordersCanvas.getContext('2d');
-      const bImgData = new ImageData(W, H);
-      const bd = bImgData.data;
-
+      // Pre-calculate borders
+      borderMap = new Uint8Array(W * H);
       for(let y=1; y<H-1; y++) {
         for(let x=1; x<W-1; x++) {
           const idx = y*W + x;
           if(mask[idx]) continue;
-          const o = ownerMap[idx];
-          if((ownerMap[idx+1] !== -1 && ownerMap[idx+1] !== o) || (ownerMap[idx+W] !== -1 && ownerMap[idx+W] !== o)) {
-             const di = idx * 4;
-             bd[di] = bd[di+1] = bd[di+2] = bd[di+3] = 255;
+          const o = globalOwnerMap[idx];
+          if((globalOwnerMap[idx+1] !== -1 && globalOwnerMap[idx+1] !== o) || 
+             (globalOwnerMap[idx+W] !== -1 && globalOwnerMap[idx+W] !== o)) {
+             borderMap[idx] = 1;
           }
         }
       }
-      bordersCtx.putImageData(bImgData, 0, 0);
 
-      for(const c of centers){
-        bordersCtx.beginPath(); bordersCtx.arc(c.x,c.y,4,0,2*Math.PI);
-        bordersCtx.fillStyle='#000'; bordersCtx.fill();
-        bordersCtx.strokeStyle='#fff'; bordersCtx.lineWidth=1.5; bordersCtx.stroke();
-      }
+      // Store global access variables
+      zoneColors = [];
+      for(let i=0; i<k; i++) zoneColors.push(centers[i].color);
+      centersGlobal = centers;
 
       renderDone = true;
       refreshMainCanvas();
@@ -994,7 +1023,10 @@
       for(let c=0; c<k; c++) {
         const col=centers[c].color;
         zoneData.push({
-          area_km2: globalCounts[c]*s.m2pp/1e6, width_m: Math.round((globalMaxX[c]-globalMinX[c])*s.mpp), height_m: Math.round((globalMaxY[c]-globalMinY[c])*s.mpp), color: `rgb(${col[0]},${col[1]},${col[2]})`
+          area_km2: globalCounts[c]*s.m2pp/1e6, 
+          width_m: Math.round((globalMaxX[c]-globalMinX[c])*s.mpp), 
+          height_m: Math.round((globalMaxY[c]-globalMinY[c])*s.mpp), 
+          color: `rgb(${col[0]},${col[1]},${col[2]})`
         });
       }
       let minP=Infinity,maxP=0;
@@ -1007,10 +1039,10 @@
   }
 
   canvasWrap.addEventListener('mousemove', e => {
-    if (!ownerMap || !renderDone || isDragging || pickMode) return;
+    if (!globalOwnerMap || !renderDone || isDragging || pickMode) return;
     const { x, y } = getCanvasPos(e);
     if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height){ tooltip.style.display='none'; return; }
-    const zone = ownerMap[y * canvas.width + x];
+    const zone = globalOwnerMap[y * canvas.width + x];
     if (zone === -1){ tooltip.style.display='none'; return; }
 
     const zd = zoneData[zone];
@@ -1035,7 +1067,7 @@
           ctx.drawImage(img,0,0);
           const {mask,land}=computeMask(),s=areaStats(land);
           statArea.textContent=`${s.playable_km2.toFixed(2)} km²`; statPlayers.textContent=`${s.playerCount}`; statPerPlayer.textContent=`${s.perPlayer_km2.toFixed(3)} km²`;
-          ownerMap=null; zoneData=[];
+          globalOwnerMap=null; zoneData=[];
           isPreviewOn = false; previewBtn.textContent = '🔍 Preview Excluded Areas'; previewBtn.classList.remove('active');
           styleSection.classList.add('hidden');
 
